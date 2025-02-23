@@ -11,6 +11,13 @@ uintptr_t DumpHandler::findAddressInFile(uintptr_t addr) const
 
 uintptr_t DumpHandler::findAddress(uintptr_t addr) const
 {
+    auto tmp = tryFindAddress(addr);
+    if (tmp.has_value()) return tmp.value();
+    throw std::runtime_error("Failed to read memory at "+std::format("{:x}", addr));
+}
+
+std::optional<uintptr_t> DumpHandler::tryFindAddress(uintptr_t addr) const
+{
     for (auto s : segments)
     {
         if (s.start <= addr && s.end >= addr)
@@ -19,5 +26,5 @@ uintptr_t DumpHandler::findAddress(uintptr_t addr) const
             return reinterpret_cast<uintptr_t>(s.base) + off;
         }
     }
-    throw std::runtime_error("Failed to read memory at "+std::format("{:x}", addr));
+    return std::nullopt;
 }

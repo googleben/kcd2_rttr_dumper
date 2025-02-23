@@ -116,6 +116,8 @@ public:
 
     uintptr_t findAddress(uintptr_t addr) const;
 
+    std::optional<uintptr_t> tryFindAddress(uintptr_t addr) const;
+
     template <typename T>
     T readMem(const uintptr_t addr)
     {

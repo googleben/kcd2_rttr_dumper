@@ -35,7 +35,7 @@ void stripFuncJunk(std::string& str)
     }
 }
 
-CS_INSN_HOLDER<CX86InsClass>* disasm(uintptr_t funcAddr, uint32_t bufLen = 4096)
+inline CS_INSN_HOLDER<CX86InsClass>* disasm(uintptr_t funcAddr, uint32_t bufLen = 4096)
 {
     CX86Disasm64 dis;
     if (auto err = dis.GetError())
@@ -54,7 +54,8 @@ CS_INSN_HOLDER<CX86InsClass>* disasm(uintptr_t funcAddr, uint32_t bufLen = 4096)
         if (COUT_DEBUG_ERRORS) log("Disasm error");
         return nullptr;
     }
-    return insnh;
+    //bad, but the destructor is crashing...
+    return insnh.release();
 }
 
 /// finds the address of a static variable from an rttr getter
@@ -157,6 +158,20 @@ void log(const std::string& message)
     logMutex.lock();
     logMessages.push(message);
     logMutex.unlock();
+}
+
+bool isAddressValid(uintptr_t addr)
+{
+    if (dumpHandler != nullptr)
+        return dumpHandler->tryFindAddress(addr).has_value();
+    MEMORY_BASIC_INFORMATION mbi;
+    auto res = VirtualQueryEx(proc, std::bit_cast<LPCVOID>(addr), &mbi, sizeof(mbi));
+    SetLastError(0);
+    if (res == 0 || mbi.State != MEM_COMMIT)
+    {
+        return false;
+    }
+    return true;
 }
 
 uintptr_t readUintptr(uintptr_t addr)
@@ -488,6 +503,7 @@ uintptr_t method::findFunction() const
             auto op2 = insn->detail->x86.operands[1];
             auto off = op2.mem.disp;
             auto func = readMem<uintptr_t>(addr + off);
+            if (!isAddressValid(func)) continue;
             funcMap[invoke_variadic] = func;
             return func;
         }
@@ -1048,6 +1064,9 @@ int main(int argc, char** argv)
         "Enables some debug logging");
     app.add_flag("-i,--debug-info", OUTPUT_DEBUG_INFO,
         "Outputs some extra information in out.cpp useful for debugging");
+    bool include_std = false;
+    app.add_flag("--include-std", include_std,
+        "Include items from the std namespace");
 
     try
     {
@@ -1072,7 +1091,25 @@ int main(int argc, char** argv)
         if (!mod) checkErr("FindModuleBase");
     }
     std::cout << "Module Base: " << hex(mod) << std::endl;
-    auto type_register_private = mod + 0x53ebde0;
+    //to find this offset:
+    //find "struct wh::entitymodule::S_PlayerItemClass>(void) noexcept"
+    //it should be referenced in a function that looks like a constructor, and also references
+    //">(void) noexcept"
+    //it should be called by exactly one function. go to that function.
+    //the function should be a TLS getter+initializer. The function called after the one we just came from is
+    //rttr::registration_manager::add_item. Enter it.
+    //it should look something like this to start:
+    //```
+    //localVar = *param2;
+    //localVar2 = someFunc();
+    //localVar3 = someOtherFunc(localVar2, localVar);
+    //localVar4 = *param2;
+    //if (localVar3 == localVar4)
+    //```
+    //Enter someFunc. it's rttr::type_register_private::get_instance. It should also be a TLS getter+initializer.
+    //At the end, it should have `return &DAT_18{some offset};`
+    //Replace the hex offset off mod below with "some offset".
+    auto type_register_private = mod + 0x53edeb0;
     if (COUT_DEBUG_PRINTS) std::cout << "type_register_private:" << hex(type_register_private) << std::endl;
     auto m_orig_name_to_id = type_register_private + 0x40;
     if (COUT_DEBUG_PRINTS) std::cout << "m_orig_name_to_id:" << hex(m_orig_name_to_id) << std::endl;
@@ -1123,6 +1160,11 @@ int main(int argc, char** argv)
     {
         for (auto& val : results | std::views::values)
         {
+            if (
+                !include_std &&
+                (val.name.starts_with("class std::") || val.name.starts_with("struct std::"))
+                )
+                continue;
             std::fwrite(val.pseudo.c_str(), val.pseudo.length(), 1, file);
         }
         std::fclose(file);

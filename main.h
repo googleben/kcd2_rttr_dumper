@@ -78,6 +78,8 @@ inline uintptr_t findModuleBase(DWORD pid, const std::wstring& moduleName)
     return baseAddr;
 }
 
+bool isAddressValid(uintptr_t addr);
+
 template <typename T>
 std::string hex(T t)
 {

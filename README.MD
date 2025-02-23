@@ -28,6 +28,7 @@ The executable supports several arguments:
 - `-t, --threads <number>`: Number of threads to use (default: 20).
 - `-p, --debug-prints`: Enables debug logging.
 - `-i, --debug-info`: Outputs extra information in out.cpp useful for debugging.
+- `--include-std`: Includes standard library types (from the namespace `std::`) in the output, e.g. `unique_ptr` specializations.
 
 # Output
 
